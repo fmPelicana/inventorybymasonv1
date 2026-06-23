@@ -109,10 +109,29 @@
   .key-next:active{opacity:.85;}
 
   /* SEND BUTTON */
-  .send-area{position:fixed;bottom:0;left:0;right:0;padding:12px 20px 28px;background:linear-gradient(to top,var(--bg) 70%,transparent);z-index:100;}
-  .send-btn{width:100%;background:var(--red);color:white;border:none;border-radius:14px;padding:16px;font-size:16px;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 4px 20px rgba(214,59,47,0.35);transition:transform .1s;}
+  .send-area{position:fixed;bottom:0;left:0;right:0;padding:12px 16px 28px;background:linear-gradient(to top,var(--bg) 70%,transparent);z-index:100;}
+  .send-row{display:flex;gap:10px;}
+  .save-btn{flex:0 0 auto;background:#2C2C2E;color:white;border:none;border-radius:14px;padding:16px 18px;font-size:22px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,0.2);transition:transform .1s;display:flex;align-items:center;justify-content:center;gap:6px;}
+  .save-btn:active{transform:scale(.96);}
+  .save-btn-label{font-size:11px;font-weight:700;font-family:'DM Sans',sans-serif;line-height:1;}
+  .send-btn{flex:1;background:var(--red);color:white;border:none;border-radius:14px;padding:16px;font-size:16px;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 4px 20px rgba(214,59,47,0.35);transition:transform .1s;}
   .send-btn:active{transform:scale(.98);}
   .send-count{background:rgba(255,255,255,0.25);border-radius:20px;padding:2px 10px;font-size:13px;}
+  /* SAVE/LOAD MODAL */
+  .saveload-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;align-items:flex-end;}
+  .saveload-overlay.open{display:flex;}
+  .saveload-sheet{background:var(--surface);border-radius:20px 20px 0 0;padding:24px 20px 40px;width:100%;}
+  .saveload-title{font-size:16px;font-weight:700;margin-bottom:4px;}
+  .saveload-sub{font-size:12px;color:var(--muted);margin-bottom:20px;}
+  .saveload-slots{display:flex;flex-direction:column;gap:10px;margin-bottom:16px;}
+  .slot-row{display:flex;align-items:center;gap:10px;background:var(--bg);border-radius:12px;padding:12px 14px;}
+  .slot-info{flex:1;min-width:0;}
+  .slot-name{font-size:13px;font-weight:600;}
+  .slot-meta{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:2px;}
+  .slot-save-btn{background:var(--blue);color:white;border:none;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;flex-shrink:0;}
+  .slot-load-btn{background:var(--green);color:white;border:none;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;flex-shrink:0;}
+  .slot-del-btn{background:none;color:var(--muted);border:none;font-size:16px;cursor:pointer;padding:4px;flex-shrink:0;}
+  .saveload-close{width:100%;padding:13px;background:none;color:var(--muted);border:1.5px solid var(--border);border-radius:14px;font-size:14px;font-family:'DM Sans',sans-serif;cursor:pointer;}
 
   /* GENERIC MODAL BASE */
   .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;align-items:flex-end;}
@@ -400,11 +419,29 @@
   </div>
 </div>
 
+<!-- SAVE/LOAD MODAL -->
+<div class="saveload-overlay" id="saveloadOverlay">
+  <div class="saveload-sheet">
+    <div class="saveload-title">💾 저장 / 불러오기</div>
+    <div class="saveload-sub">슬롯을 선택해 현재 작업을 저장하거나 불러오세요</div>
+    <div class="saveload-slots" id="saveloadSlots"></div>
+    <button class="saveload-close" onclick="closeSaveLoad()">닫기</button>
+  </div>
+</div>
+
 <div class="send-area">
-  <button class="send-btn" onclick="sendEmail()">
-    <span>📤 이메일로 전송</span>
-    <span class="send-count" id="sendCount">0개 입력됨</span>
-  </button>
+  <div class="send-row">
+    <button class="save-btn" onclick="openSaveLoad()">
+      <div>
+        <div style="font-size:20px;">💾</div>
+        <div class="save-btn-label">저장/불러오기</div>
+      </div>
+    </button>
+    <button class="send-btn" onclick="sendEmail()">
+      <span>📤 이메일로 전송</span>
+      <span class="send-count" id="sendCount">0개 입력됨</span>
+    </button>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -528,8 +565,13 @@ function resetValues() {
 
 function saveState() {
   try {
+    // 아이템 이름을 key로 저장 (인덱스 변경에 안전)
+    const namedValues = {};
+    ITEMS.forEach((item, i) => {
+      namedValues[item.name] = values[i] || {box:'', pack:''};
+    });
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      values, hqEmail,
+      namedValues, hqEmail,
       date: document.getElementById('invDate').value,
       items: ITEMS
     }));
@@ -548,9 +590,10 @@ function loadState() {
     }
     if (state.date) document.getElementById('invDate').value = state.date;
     resetValues();
-    if (state.values) {
+    // 이름 기준으로 복원
+    if (state.namedValues) {
       ITEMS.forEach((item, i) => {
-        const saved = state.values[i];
+        const saved = state.namedValues[item.name];
         if (saved) values[i] = { box: saved.box||'', pack: saved.pack||'' };
       });
     }
@@ -607,8 +650,16 @@ function openAdmin() {
 function closeAdmin() {
   document.getElementById('adminPanel').classList.remove('open');
   document.body.style.overflow='';
-  // Rebuild main views with updated items
-  resetValues();
+  // 현재 values를 이름 기준 맵으로 변환 (인덱스 변경에 완전히 안전)
+  const nameMap = {};
+  ITEMS.forEach((item, i) => {
+    nameMap[item.name] = values[i] || {box:'', pack:''};
+  });
+  // values 완전히 새로 구성 — 이름 매칭되면 보존, 새 아이템은 빈값
+  values = {};
+  ITEMS.forEach((item, i) => {
+    values[i] = nameMap[item.name] || {box:'', pack:''};
+  });
   buildScrollView();
   buildCategoryView();
   updateProgress();
@@ -905,6 +956,95 @@ function closeGuide(){document.getElementById('guideOverlay').classList.remove('
 
 // ===== TOAST =====
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
+
+// ===== SAVE / LOAD SLOTS =====
+const SLOT_KEY = 'pelicana_slots';
+const SLOT_NAMES = ['슬롯 1', '슬롯 2', '슬롯 3'];
+
+function getSlots() {
+  try { return JSON.parse(localStorage.getItem(SLOT_KEY)) || [null, null, null]; }
+  catch(e) { return [null, null, null]; }
+}
+function saveSlots(slots) {
+  try { localStorage.setItem(SLOT_KEY, JSON.stringify(slots)); } catch(e) {}
+}
+
+function openSaveLoad() {
+  renderSaveLoadSlots();
+  document.getElementById('saveloadOverlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeSaveLoad() {
+  document.getElementById('saveloadOverlay').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function renderSaveLoadSlots() {
+  const slots = getSlots();
+  const container = document.getElementById('saveloadSlots');
+  container.innerHTML = slots.map((slot, i) => {
+    const hasData = slot !== null;
+    const meta = hasData
+      ? `${slot.date || '날짜없음'} · ${slot.filled}개 입력`
+      : '비어있음';
+    return `
+      <div class="slot-row">
+        <div class="slot-info">
+          <div class="slot-name">${SLOT_NAMES[i]}</div>
+          <div class="slot-meta">${meta}</div>
+        </div>
+        <button class="slot-save-btn" onclick="saveToSlot(${i})">저장</button>
+        ${hasData ? `<button class="slot-load-btn" onclick="loadFromSlot(${i})">불러오기</button>` : ''}
+        ${hasData ? `<button class="slot-del-btn" onclick="deleteSlot(${i})">🗑</button>` : ''}
+      </div>`;
+  }).join('');
+}
+
+function saveToSlot(i) {
+  const slots = getSlots();
+  const namedValues = {};
+  ITEMS.forEach((item, idx) => { namedValues[item.name] = values[idx] || {box:'', pack:''}; });
+  const filled = Object.values(values).filter(v => v.box !== '' || v.pack !== '').length;
+  slots[i] = {
+    namedValues,
+    items: ITEMS,
+    date: document.getElementById('invDate').value,
+    filled,
+    savedAt: new Date().toLocaleString('ko-KR')
+  };
+  saveSlots(slots);
+  renderSaveLoadSlots();
+  showToast(`${SLOT_NAMES[i]}에 저장되었습니다`);
+}
+
+function loadFromSlot(i) {
+  if (!confirm(`${SLOT_NAMES[i]}을 불러올까요? 현재 입력값이 교체됩니다.`)) return;
+  const slots = getSlots();
+  const slot = slots[i];
+  if (!slot) return;
+  if (slot.items && slot.items.length > 0) ITEMS = slot.items;
+  values = {};
+  ITEMS.forEach((item, idx) => {
+    const saved = slot.namedValues && slot.namedValues[item.name];
+    values[idx] = saved ? { box: saved.box||'', pack: saved.pack||'' } : {box:'', pack:''};
+  });
+  if (slot.date) document.getElementById('invDate').value = slot.date;
+  buildScrollView();
+  buildCategoryView();
+  updateProgress();
+  saveState();
+  closeSaveLoad();
+  showToast(`${SLOT_NAMES[i]} 불러오기 완료`);
+}
+
+function deleteSlot(i) {
+  if (!confirm(`${SLOT_NAMES[i]}을 삭제할까요?`)) return;
+  const slots = getSlots();
+  slots[i] = null;
+  saveSlots(slots);
+  renderSaveLoadSlots();
+  showToast(`${SLOT_NAMES[i]} 삭제됨`);
+}
 
 // INIT
 buildScrollView();
